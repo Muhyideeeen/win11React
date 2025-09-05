@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [javascript]   # For Vite (JavaScript/TypeScript)
+        language: [javascript]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
       # ---------------------------
       # 1. CodeQL Scan
       # ---------------------------
-      - name: Initialise CodeQL
+      - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
@@ -41,18 +41,45 @@ jobs:
         run: npm run build --if-present
 
       - name: Perform CodeQL Analysis
+        id: codeql
         uses: github/codeql-action/analyze@v3
 
       # ---------------------------
       # 2. NPM Audit Scan
       # ---------------------------
       - name: Run npm audit
+        id: npmaudit
         run: npm audit --audit-level=high
+
+      # ---------------------------
+      # 3. Create Issue if Scans Fail
+      # ---------------------------
+      - name: Save Failure Report
+        if: failure()   # runs only if any previous step failed
+        run: |
+          echo "🚨 Security scan failed for commit $GITHUB_SHA" > security-failure.md
+          echo "" >> security-failure.md
+          echo "👉 Check details:" >> security-failure.md
+          echo "- CodeQL results (if applicable): Security > Code scanning alerts tab" >> security-failure.md
+          echo "- npm audit found vulnerable dependencies" >> security-failure.md
+          echo "" >> security-failure.md
+          echo "Triggered by: $GITHUB_ACTOR" >> security-failure.md
+          echo "Branch: $GITHUB_REF_NAME" >> security-failure.md
+          echo "Workflow: $GITHUB_WORKFLOW" >> security-failure.md
+
+      - name: Create GitHub Issue
+        if: failure()
+        uses: peter-evans/create-issue-from-file@v4
+        with:
+          title: "Security Scan Failed 🚨"
+          content-filepath: ./security-failure.md
+          labels: security, bug
 
   deploy:
     name: Deploy to Server
     runs-on: ubuntu-latest
-    needs: security     # ✅ Deploy only if scans pass
+    needs: security
+    if: needs.security.result == 'success'   # ✅ Deploy only if scans passed
     steps:
       - name: Update and Deploy
         uses: appleboy/ssh-action@master
